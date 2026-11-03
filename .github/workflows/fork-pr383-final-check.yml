@@ -1,0 +1,44 @@
+name: nsjail PR 383 final Linux checks (fork only)
+
+on:
+  push:
+    branches:
+      - ci/nsjail-pr383-final-check
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install nsjail dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config protobuf-compiler libprotobuf-dev \
+            libnl-route-3-dev autoconf bison flex libtool
+
+      - name: Build full nsjail
+        run: make -j2
+
+      - name: Run existing unit tests
+        run: |
+          make -j2 tests/nstun_buffer_budget_test tests/nstun_policy_test tests/nstun_ip_test tests/nstun_udp_peer_test
+          ./tests/nstun_buffer_budget_test
+          ./tests/nstun_policy_test
+          ./tests/nstun_ip_test
+          ./tests/nstun_udp_peer_test
+
+      - name: Run FIN and EOF/HUP regression with sanitizers
+        run: python3 tests/nstun_tcp_fin_lifecycle_test.py
+
+      - name: Validate Docker image build
+        run: docker build --file Dockerfile .
