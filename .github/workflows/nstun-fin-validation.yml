@@ -1,0 +1,47 @@
+name: Validate nstun FIN patch (fork only)
+
+# This workflow exists only on the botegalucas/nsjail validation branch.
+# It is not part of the patch proposed to google/nsjail.
+on:
+  push:
+    branches:
+      - ci/nstun-fin-382
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compile-and-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout including kafel submodule
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install C++/protobuf/netlink build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config protobuf-compiler libprotobuf-dev \
+            libnl-3-dev libnl-route-3-dev flex bison autoconf libtool
+
+      - name: Full nsjail compilation
+        run: |
+          make -j2
+          test -x ./nsjail
+
+      - name: Build and run native unit tests
+        run: |
+          make -j2 tests/nstun_buffer_budget_test tests/nstun_policy_test \
+                   tests/nstun_ip_test tests/nstun_udp_peer_test
+          ./tests/nstun_buffer_budget_test
+          ./tests/nstun_policy_test
+          ./tests/nstun_ip_test
+          ./tests/nstun_udp_peer_test
+
+      - name: FIN state-machine tests with ASan and UBSan
+        run: |
+          python3 tests/nstun_tcp_fin_lifecycle_test.py nstun/tcp.cc
