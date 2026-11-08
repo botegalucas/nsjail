@@ -1,0 +1,28 @@
+name: Validate clean SOCKS5 PR candidate
+on:
+  push:
+    branches:
+      - 'investigate/socks5-udp-control-loop-20261108'
+permissions:
+  contents: read
+jobs:
+  clean-candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 'fix/nstun-socks5-udp-control-spin-20261108'
+          fetch-depth: 0
+          submodules: recursive
+      - name: Check patch whitespace
+        run: git diff master...HEAD --check
+      - name: Build full nsjail with official Dockerfile
+        run: docker build --target build -t nsjail-socks5-clean-candidate .
+      - name: Build and run upstream-integrated SOCKS5 regression
+        run: |
+          docker run --rm --network none nsjail-socks5-clean-candidate sh -ec '
+            cd /nsjail
+            make tests/socks5_control_reader_test
+            ./tests/socks5_control_reader_test
+          '
