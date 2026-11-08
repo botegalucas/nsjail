@@ -1,0 +1,45 @@
+name: Real NSTUN SOCKS5 CPU integration (experimental)
+on:
+  push:
+    branches:
+      - 'investigate/socks5-udp-control-loop-20261108'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout fixed baseline
+        uses: actions/checkout@v4
+        with:
+          repository: botegalucas/nsjail
+          ref: d8415bc8eea43cdd413daba25af63127019a1189
+          path: baseline
+          submodules: recursive
+      - name: Checkout experimental fix
+        uses: actions/checkout@v4
+        with:
+          path: patched
+          submodules: recursive
+      - name: Build the actual nsjail binaries
+        run: |
+          docker build -t nsjail-socks5-original ./baseline
+          docker build -t nsjail-socks5-patched ./patched
+      - name: Add Python integration fixture to disposable runtime images
+        run: |
+          printf 'FROM nsjail-socks5-original\nRUN apt-get update && apt-get install -y --no-install-recommends python3 && rm -rf /var/lib/apt/lists/*\n' > /tmp/socks5-original.Dockerfile
+          printf 'FROM nsjail-socks5-patched\nRUN apt-get update && apt-get install -y --no-install-recommends python3 && rm -rf /var/lib/apt/lists/*\n' > /tmp/socks5-patched.Dockerfile
+          docker build -f /tmp/socks5-original.Dockerfile -t socks5-original-runtime /tmp
+          docker build -f /tmp/socks5-patched.Dockerfile -t socks5-patched-runtime /tmp
+      - name: Confirm original code spins on incomplete handshake
+        run: |
+          docker run --rm --privileged --network none \
+            -v "$GITHUB_WORKSPACE/patched:/work:ro" -w /work \
+            socks5-original-runtime python3 tests/socks5_udp_integration.py --expect busy
+      - name: Confirm patched code stays idle on incomplete handshake
+        run: |
+          docker run --rm --privileged --network none \
+            -v "$GITHUB_WORKSPACE/patched:/work:ro" -w /work \
+            socks5-patched-runtime python3 tests/socks5_udp_integration.py --expect quiet
