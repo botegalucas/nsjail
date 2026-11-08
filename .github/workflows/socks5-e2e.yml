@@ -1,0 +1,34 @@
+name: SOCKS5 nstun real TUN integration (experimental)
+on:
+  push:
+    branches:
+      - 'investigate/socks5-udp-control-loop-20261108'
+permissions:
+  contents: read
+jobs:
+  real-tun:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+      - name: Build isolated Debian test image
+        run: docker build -t nsjail-socks5-e2e -f tests/Dockerfile.socks5_e2e .
+      - name: Run baseline and patched builds against real nsjail TUN and local SOCKS5
+        run: |
+          docker run --rm --privileged --network none -v "$PWD:/src" -w /src nsjail-socks5-e2e bash -ec '
+            mkdir -p /dev/net
+            if [ ! -e /dev/net/tun ]; then mknod /dev/net/tun c 10 200; fi
+            ip link set lo up
+            cat /dev/net/tun || test $? -eq 1
+            git config --global --add safe.directory /src
+            git worktree add --detach /tmp/nsjail-baseline origin/master
+            cp -a /src/kafel /tmp/nsjail-baseline/kafel
+            make -C /tmp/nsjail-baseline -j2
+            make -C /src -j2
+            python3 tests/socks5_e2e.py \
+              --baseline /tmp/nsjail-baseline/nsjail \
+              --patched /src/nsjail
+          '
