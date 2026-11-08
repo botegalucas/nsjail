@@ -6,6 +6,7 @@ SOCKS5 fixture deliberately sends just one byte of its two-byte greeting reply.
 Measure CPU of the *actual nsjail process*, not a copied parser implementation.
 """
 import argparse
+import json
 import os
 import signal
 import socket
@@ -81,19 +82,29 @@ def main():
     if errors:
         raise RuntimeError("SOCKS5 fixture: %s" % errors[0])
 
-    # tests/socks5.cfg already declares exec_bin=/bin/bash with arg=-i.
-    # CLI arguments extend that exec_bin rather than replacing it. Supply
-    # Bash's -c command, not a Python pathname misread as a shell script.
-    child_shell_command = (
-        "python3 -c \"import socket,time;"
+    # The checked-in SOCKS5 config hardcodes Bash as exec_bin. The "--"
+    # arguments do NOT override it: Bash treats the following argument as a
+    # script pathname. Generate a local test-only config with Python exec_bin.
+    with open("tests/socks5.cfg", encoding="utf-8") as template_file:
+        template = template_file.read()
+    marker = "\nexec_bin {"
+    at = template.rfind(marker)
+    if at < 0:
+        raise RuntimeError("Could not locate exec_bin in fixture config")
+    child_inline = (
+        "import socket,time;"
         "s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);"
         "s.sendto(b'probe',('198.51.100.15',40000));"
-        "time.sleep(4)\""
+        "time.sleep(4)"
     )
-    command = [
-        "/bin/nsjail", "-C", "tests/socks5.cfg", "--",
-        "-c", child_shell_command,
-    ]
+    config = template[:at] + (
+        '\nexec_bin {\n  path: "/usr/bin/python3"\n'
+        '  arg: "-c"\n  arg: ' + json.dumps(child_inline) + '\n}\n'
+    )
+    config_path = "/tmp/nsjail-socks5-cpu.cfg"
+    with open(config_path, "w", encoding="utf-8") as test_config:
+        test_config.write(config)
+    command = ["/bin/nsjail", "-C", config_path]
     with open("/tmp/nsjail-socks5-integration.log", "w", encoding="utf-8") as log:
         proc = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT,
                                 start_new_session=True)
