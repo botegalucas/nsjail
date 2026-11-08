@@ -25,7 +25,7 @@ jobs:
             cat /dev/net/tun || test $? -eq 1
             git config --global --add safe.directory /src
             git worktree add --detach /tmp/nsjail-baseline origin/master
-            cp -a /src/kafel /tmp/nsjail-baseline/kafel
+            cp -a /src/kafel/. /tmp/nsjail-baseline/kafel/
             make -C /tmp/nsjail-baseline -j2
             make -C /src -j2
             python3 tests/socks5_e2e.py \
