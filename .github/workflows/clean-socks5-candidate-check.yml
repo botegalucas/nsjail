@@ -16,7 +16,7 @@ jobs:
           fetch-depth: 0
           submodules: recursive
       - name: Check patch whitespace
-        run: git diff master...HEAD --check
+        run: git diff origin/master...HEAD --check
       - name: Build full nsjail with official Dockerfile
         run: docker build --target build -t nsjail-socks5-clean-candidate .
       - name: Build and run upstream-integrated SOCKS5 regression
