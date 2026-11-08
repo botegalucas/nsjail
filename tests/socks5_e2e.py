@@ -16,7 +16,7 @@ import threading
 import time
 import pathlib
 
-SCENARIOS = ("greeting_partial", "associate_partial", "associate_ipv6", "established_extra")
+SCENARIOS = ("normal_success", "normal_split", "greeting_partial", "associate_partial", "associate_ipv6", "established_extra")
 MEASURE_SECONDS = 0.9
 
 def read_exact(sock, n):
@@ -43,6 +43,36 @@ def proxy_worker(listener, scenario, handshake_complete, release, outcome):
             assert read_exact(conn, 3) == b"\x05\x01\x00", "bad initial greeting"
             if scenario == "greeting_partial":
                 conn.sendall(b"\x05")
+            elif scenario in ("normal_success", "normal_split"):
+                # Exercise a *successful* UDP ASSOCIATE handshake using a real
+                # local UDP relay, and require the datagram to traverse NSTUN.
+                with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as relay:
+                    relay.bind(("127.0.0.1", 0))
+                    relay.settimeout(3)
+                    if scenario == "normal_split":
+                        conn.sendall(b"\x05")
+                        time.sleep(0.03)
+                        conn.sendall(b"\x00")
+                    else:
+                        conn.sendall(b"\x05\x00")
+                    request = read_exact(conn, 10)
+                    assert request[:4] == b"\x05\x03\x00\x01", "bad UDP ASSOCIATE request"
+                    reply = b"\x05\x00\x00\x01" + socket.inet_aton("127.0.0.1") + relay.getsockname()[1].to_bytes(2, "big")
+                    if scenario == "normal_split":
+                        conn.sendall(reply[:4])
+                        time.sleep(0.03)
+                        conn.sendall(reply[4:])
+                    else:
+                        conn.sendall(reply)
+                    packet, sender = relay.recvfrom(2048)
+                    assert packet[:10] == b"\x00\x00\x00\x01" + socket.inet_aton("8.8.8.8") + b"\x00\x35", repr(packet[:10])
+                    assert packet[10:] == b"e2e-local-test", repr(packet[10:])
+                    outcome["udp_received"] = True
+                    # Send a well-formed reply through the relay as a smoke test.
+                    relay.sendto(packet[:10] + b"e2e-local-reply", sender)
+                    handshake_complete.set()
+                    release.wait(5)
+                    return
             else:
                 conn.sendall(b"\x05\x00")
                 request = read_exact(conn, 10)
@@ -117,6 +147,8 @@ user_net {
             raise RuntimeError("proxy handshake: " + outcome["error"])
         if proc.poll() is not None:
             raise RuntimeError("nsjail exited early: code=%s" % proc.returncode)
+        if scenario in ("normal_success", "normal_split") and not outcome.get("udp_received"):
+            raise RuntimeError("normal SOCKS5 handshake did not forward UDP datagram")
         before = cpu_seconds(proc.pid)
         start = time.monotonic()
         time.sleep(MEASURE_SECONDS)
@@ -160,10 +192,14 @@ def main():
     print("\nCOMPARISON", flush=True)
     for scenario, (base, fixed) in results.items():
         print("%s: baseline %.3f / fixed %.3f CPU cores" % (scenario, base, fixed), flush=True)
-        if base < 0.25:
-            raise AssertionError("baseline did not manifest sustained CPU spinning: " + scenario)
-        if fixed > 0.20:
-            raise AssertionError("patch still spends substantial CPU: " + scenario)
+        if scenario in ("normal_success", "normal_split"):
+            if base > 0.20 or fixed > 0.20:
+                raise AssertionError("normal SOCKS5 handshake unexpectedly spins: " + scenario)
+        else:
+            if base < 0.25:
+                raise AssertionError("baseline did not manifest sustained CPU spinning: " + scenario)
+            if fixed > 0.20:
+                raise AssertionError("patch still spends substantial CPU: " + scenario)
     print("INTEGRATED_NSTUN_SOCKS5_E2E_PASS", flush=True)
 
 if __name__ == "__main__":
