@@ -81,9 +81,18 @@ def main():
     if errors:
         raise RuntimeError("SOCKS5 fixture: %s" % errors[0])
 
+    # tests/socks5.cfg already declares exec_bin=/bin/bash with arg=-i.
+    # CLI arguments extend that exec_bin rather than replacing it. Supply
+    # Bash's -c command, not a Python pathname misread as a shell script.
+    child_shell_command = (
+        "python3 -c \"import socket,time;"
+        "s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);"
+        "s.sendto(b'probe',('198.51.100.15',40000));"
+        "time.sleep(4)\""
+    )
     command = [
         "/bin/nsjail", "-C", "tests/socks5.cfg", "--",
-        "/usr/bin/python3", "-c", CHILD_CODE,
+        "-c", child_shell_command,
     ]
     with open("/tmp/nsjail-socks5-integration.log", "w", encoding="utf-8") as log:
         proc = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT,
