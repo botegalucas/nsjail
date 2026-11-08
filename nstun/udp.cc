@@ -220,6 +220,10 @@ static void handle_udp_tcp_connecting(Context* ctx, UdpFlow* flow, uint32_t even
 }
 
 static void handle_udp_socks5_greeting(Context* ctx, UdpFlow* flow, uint32_t events) {
+    if (events & (EPOLLERR | EPOLLHUP)) {
+        udp_destroy_flow(ctx, flow);
+        return;
+    }
     const auto status = read_socks5_control(flow->tcp_fd, &flow->socks5_control_rx,
         sizeof(socks5_auth_reply), &flow->last_active);
     if (status == Socks5ControlRead::PENDING) return;
@@ -242,6 +246,10 @@ static void handle_udp_socks5_greeting(Context* ctx, UdpFlow* flow, uint32_t eve
 }
 
 static void handle_udp_socks5_associate(Context* ctx, UdpFlow* flow, uint32_t events) {
+    if (events & (EPOLLERR | EPOLLHUP)) {
+        udp_destroy_flow(ctx, flow);
+        return;
+    }
     const int fd = flow->tcp_fd;
     auto status = read_socks5_control(fd, &flow->socks5_control_rx, 4, &flow->last_active);
     if (status == Socks5ControlRead::PENDING) return;
