@@ -1,0 +1,21 @@
+name: SOCKS5 UDP control regression (experimental)
+on:
+  push:
+    branches:
+      - 'investigate/socks5-udp-control-loop-20261108'
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Unit regression (actual helper)
+        run: |
+          g++ -std=c++20 -O2 -Wall -Wextra -Werror -I. tests/socks5_control_reader_test.cc -o /tmp/socks5_control_test
+          /tmp/socks5_control_test
+      - name: Build full nsjail in Docker
+        run: docker build -t nsjail-socks5-check .
