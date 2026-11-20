@@ -1,0 +1,33 @@
+name: Validate PR387 merge with November 20 upstream
+on:
+  push:
+    branches:
+      - 'ci/pr387-sync-proof-20261120'
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+      - name: Verify merged patch only modifies expected files
+        shell: bash
+        run: |
+          git diff ec259a3edb34c3b138fbad859c09e0e70259ff8b...HEAD --check
+          git diff --name-only ec259a3edb34c3b138fbad859c09e0e70259ff8b HEAD
+          grep -q 'tests/mount_source_anchor_test tests/socks5_control_reader_test' Makefile
+          grep -q 'call run_test, ./tests/mount_source_anchor_test' Makefile
+          grep -q 'call run_test, ./tests/socks5_control_reader_test' Makefile
+      - name: Build entire latest nsjail with official Dockerfile
+        run: docker build --target build -t nsjail-pr387-merged .
+      - name: Compile and run SOCKS5 epoll regression test
+        run: |
+          docker run --rm --network none nsjail-pr387-merged sh -ec '
+            cd /nsjail
+            make tests/socks5_control_reader_test
+            ./tests/socks5_control_reader_test
+          '
